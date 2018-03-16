@@ -8,3 +8,5 @@ version = t.get_version()
 print "Firmware Ver: " + str(version)
 
 aaa
+
+aaa
