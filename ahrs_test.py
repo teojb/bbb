@@ -6,3 +6,7 @@ t = trax_test.trax(ser)
 
 version = t.get_version()
 print "Firmware Ver: " + str(version)
+
+what is this
+
+how to use branch
