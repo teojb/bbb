@@ -8,6 +8,7 @@ import binascii
 import serial
 import time
 import crc16
+import logging
 import Adafruit_BBIO.GPIO as GPIO
 import Adafruit_BBIO.UART as UART
 
@@ -61,6 +62,8 @@ kUserCalNumPoints		= 12
 kUserCalAutoSampling	= 13
 kHPRDuringCal			= 16
 
+logger = logging.getLogger(__name__)
+
 class trax(object):
 	def __init__(self, port=None, timeout=5):
 		if port is not None:
@@ -99,8 +102,8 @@ class trax(object):
 			attempts += 1
 			if attempts >=  max_attempts:
 				raise RuntimeError('Exceeded maximum attempts to acknowledge serial command without bus error!')
-	
-	def _write_bytes(self, data, ack=True):
+
+	def _write_bytes(self, address, data, ack=True):
 		# Build and send serial register write command.
 		command = bytearray(4+len(data))
 		command[0] = 0xAA  # Start byte
@@ -113,7 +116,7 @@ class trax(object):
 		if resp[0] != 0xEE and resp[1] != 0x01:
 			raise RuntimeError('Register write error: 0x{0}'.format(binascii.hexlify(resp)))
 
-	def _write_byte(self, value, ack=True):
+	def _write_byte(self, address, value, ack=True):
 		# Write an 8-bit value to the provided register address.  If ack is True
 		# then expect an acknowledgement in serial mode, otherwise ignore any
 		# acknowledgement (necessary when resetting the device).
@@ -127,9 +130,9 @@ class trax(object):
 		resp = self._serial_send(command, ack=ack)
 		# Verify register write succeeded if there was an acknowledgement.
 		if ack and resp[0] != 0xEE and resp[1] != 0x01:
-			raise RuntimeError('Register write error: 0x{0}'.format(binascii.hexlify(resp)))	
-	
-	def _read_bytes(self, length):
+			raise RuntimeError('Register write error: 0x{0}'.format(binascii.hexlify(resp)))
+
+	def _read_bytes(self, address, length):
 		# Build and send serial register read command.
 		command = bytearray(4)
 		command[0] = 0xAA  # Start byte
@@ -147,18 +150,18 @@ class trax(object):
 		if resp is None or len(resp) != length:
 			raise RuntimeError('Timeout waiting to read data, is the BNO055 connected?')
 		return resp
-		
-	def _read_byte(self):
-		return self._read_bytes(1)[0]
-		
-	def _read_signed_byte(self):
+
+	def _read_byte(self, address):
+		return self._read_bytes(address, 1)[0]
+
+	def _read_signed_byte(self, address):
 		# Read an 8-bit signed value from the provided register address.
-		data = self._read_byte()
+		data = self._read_byte(address)
 		if data > 127:
 			return data - 256
 		else:
 			return data
-			
+
 	def _config_mode(self):
 		# Enter configuration mode.
 		self.set_mode(kSetConfig)
@@ -168,12 +171,31 @@ class trax(object):
 		self.set_mode(self._mode)
 
 	def begin(self, mode=kStartContinuousMode):
-		
-def get_version(self):
-#self.write_frame((frameID["kGetModInfo"],), )
-#self.write_frame((frameID["kGetModInfo"],), frameID["kGetModInfoResp"])
-#print binascii.b2a_hex(self.read_frame())
-#version = self.read_frame((frameID["kGetModInfoResp"]),)
-#version = self.resp_frame((frameID["kGetModInfoResp"]),)
-#print ("Firmware Ver: " + (version))
-return version
+		"""Initialize the Trax.  Must be called once before any other
+        library functions.  Will return True if successfully initialized and False otherwise.
+        """
+		# Save the desired normal operation mode.
+        self._mode = mode
+		# Make sure we're in config mode
+        self._config_mode()
+        self._write_byte(kGetModInfo)
+        # Check the chip ID
+        version = self._read_byte(kGetModInfoResp)
+		print ('Firmware Version:' + (version))
+        logger.debug('Read chip ID: 0x{0:02X}'.format(version))
+
+        # Set functional mode.
+		''' mode = 0 for compass
+            mode = 1 for ahrs '''
+        self._write_byte(kSetFunctionalMode, 1)
+
+        # Enter normal operation mode.
+        self._operation_mode()
+        return True
+
+    def set_mode(self, mode):
+        """Set acquisition mode to continuous or polled.
+        """
+        self._write_byte(kStartContinuousMode, mode & 0xFF)
+
+        time.sleep(0.03)
